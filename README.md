@@ -3,6 +3,7 @@ Pipeline finding Mgnify/UniProt clusters to increase the metagenomic coverage in
 
 ## Requirements
 Python 3.6 and above
+
 Config file with the variables as specified in `clustering_model.cfg`
 
 ## Clustering
