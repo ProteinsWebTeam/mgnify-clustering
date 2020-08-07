@@ -2,7 +2,7 @@
 
 # @author T. Paysan-Lafosse
 # @brief this script concatains fasta files and generates MGnify/UniProt-KB clusters
-#usage: bsub -q production-rh74 -M 600000 -R "rusage[mem=600000]" -o clustering_full_bidir.log -J cluster_full_uni -Pbigmem -n 16 ./cluster.sh clustering.cfg
+#usage: bsub -q production-rh74 -M 600000 -R "rusage[mem=600000]" -oo clustering_full_bidir.log -J cluster_full_uni -Pbigmem -n 16 ./cluster.sh clustering.cfg
 
 if [[ $# -lt 1 ]]; then
     echo "Illegal number of parameters. Usage: cluster.sh config_file"
@@ -25,7 +25,9 @@ DATADIR="${SCRIPTDIR}/data"
 mkdir -p $DATADIR
 
 #get latest version of UniProtKB
-bsub -J "get_uniprotkb" -oo "${DATADIR}/uniprot.log" "${SCRIPTDIR}/update_uniprotkb.sh" $DATADIR
+if [[ $UPDATE_UNIPROT -eq "yes" ]];then
+    bsub -J "get_uniprotkb" -oo "${DATADIR}/uniprot.log" "${SCRIPTDIR}/update_uniprotkb.sh" $DATADIR
+fi
 
 cd $DATADIR
 
@@ -70,23 +72,19 @@ SUBDIR="${MGNIFY_VERSION}_${UNIPROT_VERSION}_FULL_bidir"
 mkdir -p $SUBDIR
 
 DB="${SUBDIR}/mgy_seqs"
-
-$mmseqs createdb $MGYUNI_FASTA $DB.mmseqs
-$mmseqs linclust $DB.mmseqs $DB.cluster "${SUBDIR}/tmp/" --min-seq-id 0.5 -c 0.75 --cov-mode 0 --threads 16
-$mmseqs result2repseq $DB.mmseqs $DB.cluster $DB.cluster_rep
-$mmseqs result2flat $DB.mmseqs $DB.mmseqs $DB.cluster_rep $DB.cluster_rep.fa
-$mmseqs createtsv $DB.mmseqs $DB.mmseqs $DB.cluster $DB.cluster.tsv
-$mmseqs createseqfiledb $DB.mmseqs $DB.cluster $DB.cluster_seq
-$mmseqs result2flat $DB.mmseqs $DB.mmseqs $DB.cluster_seq $DB.cluster_seq.fa
-
 cluster_file="${DB}.cluster_seq.fa"
 
-#divide cluster into multiple files	
-#cluster_sets="${SUBDIR}/cluster_sets"
-#mkdir -p $cluster_sets
-#awk '/^>[A-Z0-9]+$/ { delim++ } { file = sprintf("${cluster_sets}/clusts%s.fa", int(delim / 300000)); print >> file; }' < $DB.cluster_seq.fa
+if [[ ! -s $cluster_file ]];then
+    $mmseqs createdb $MGYUNI_FASTA $DB.mmseqs
+    $mmseqs linclust $DB.mmseqs $DB.cluster "${SUBDIR}/tmp/" --min-seq-id 0.5 -c 0.75 --cov-mode 0 --threads 16
+    $mmseqs result2repseq $DB.mmseqs $DB.cluster $DB.cluster_rep
+    $mmseqs result2flat $DB.mmseqs $DB.mmseqs $DB.cluster_rep $DB.cluster_rep.fa
+    $mmseqs createtsv $DB.mmseqs $DB.mmseqs $DB.cluster $DB.cluster.tsv
+    $mmseqs createseqfiledb $DB.mmseqs $DB.cluster $DB.cluster_seq
+    $mmseqs result2flat $DB.mmseqs $DB.mmseqs $DB.cluster_seq $DB.cluster_seq.fa
+fi
 
-if [[ -s $DB.cluster_rep.fa ]];then
+if [[ -s $cluster_file ]];then
     #counting cluster size and Mgnify percentages per cluster
     source ~oracle/ora112setup.sh
     prot_not_in_pfam="${DATADIR}/proteins_not_in_pfam_${UNIPROT_VERSION}.txt"
