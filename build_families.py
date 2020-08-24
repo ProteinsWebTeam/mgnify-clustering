@@ -28,6 +28,10 @@ def build_family(cluster_file, family, familydir):
     trim_alignment_script = (
         "/nfs/production/xfam/pfam/software/Pfam/PfamScripts/make/trim_alignment.pl"
     )
+    pdb_ref_script = "/homes/agb/Scripts/add_pdb_ref.pl"
+
+    swissprot_script = "/nfs/production/xfam/pfam/software/Pfam/PfamScripts/make/swissprot.pl"
+
     scriptdir = os.path.dirname(os.path.realpath(__file__))
 
     print(f"Building family {family}")
@@ -70,6 +74,12 @@ def build_family(cluster_file, family, familydir):
 
     print("Building Pfam from seed alignment")
     os.system("pfbuild SEED")
+
+    print("Searching for PDB reference")
+    os.system(f"perl {pdb_ref_script}")
+
+    print("Searching for SwissProt info")
+    os.system(f"perl {swissprot_script}")
 
     os.chdir(scriptdir)
 

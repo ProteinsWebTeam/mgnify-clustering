@@ -6,6 +6,8 @@
 #
 # @brief This script generates MSA for clusters not matching Pfam db
 #
+# usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse [-d "yes" (delete previous files)]
+#
 ###################
 
 import os
@@ -42,7 +44,7 @@ class alignments:
     def get_cluster_align(self, count):
         nb_zeros = 6 - len(str(count))
         cluster_align = "Pfam-M_"
-        for c in range(1, nb_zeros):
+        for c in range(0, nb_zeros):
             cluster_align = f"{cluster_align}0"
 
         return f"{cluster_align}{count}"
@@ -96,22 +98,22 @@ if __name__ == "__main__":
 
     al = alignments()
     al.datadir = os.path.dirname(os.path.realpath(args.inputfile))
-    # al.aligned_dir = os.path.join(al.datadir,"Pfam-M")
-    al.aligned_dir = os.path.join(al.datadir, "Pfam-M_test")
+    al.aligned_dir = os.path.join(al.datadir, "Pfam-M")
+    # al.aligned_dir = os.path.join(al.datadir, "Pfam-M_test")
     al.cluster_dir = os.path.join(al.datadir, "clusters")
 
     pfam_m_names = os.path.join(al.datadir, "corresponding_clusters.txt")
+    # pfam_m_names = os.path.join(al.datadir, "corresponding_clusters_test.txt")
 
     # Load the pfam configuration
     al.load_pfam_config()
 
-    print("Deleting old alignment files")
-    try:
-        os.remove(pfam_m_names)
-    except FileNotFoundError:
-        pass
-
     if args.deletedata != "No":
+        print("Deleting old alignment files")
+        try:
+            os.remove(pfam_m_names)
+        except FileNotFoundError:
+            pass
         print(f"Deleting old data {al.aligned_dir}")
         shutil.rmtree(al.aligned_dir)
 
@@ -121,13 +123,15 @@ if __name__ == "__main__":
     count = 1
 
     with open(args.inputfile, "r") as f, open(pfam_m_names, "w") as pf:
-        pf.write("pf_id\tcluster_rep\tnb_seq\tpercent_mgnify\tperecent_swissprot\n")
+        if args.deletedata != "No":
+            pf.write("pf_id\tcluster_rep\tnb_seq\tpercent_mgnify\tperecent_swissprot\n")
+
         for line in f:
-            if count < 2:
+            if count <= 10:
                 pf.write(al.get_alignment(count, line))
                 count += 1
             else:
                 break
 
-    print(f"Pfam building done, {count-1} clusters saved")
+    print(f"Pfam building done, {count} clusters saved")
 
