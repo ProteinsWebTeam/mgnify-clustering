@@ -2,3 +2,4 @@ data/
 MMseqs2/
 clustering.cfg
 *.log
+.vscode/
