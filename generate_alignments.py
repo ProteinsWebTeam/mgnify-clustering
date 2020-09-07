@@ -6,7 +6,10 @@
 #
 # @brief This script generates MSA for clusters not matching Pfam db
 #
-# usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse [-d "yes" (delete previous files)]
+# usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse 
+#                                     [-d "yes" (delete previous files)] 
+#                                     [-b family to start building from] 
+#                                     [-n number of families to build]
 #
 ###################
 

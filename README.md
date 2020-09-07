@@ -24,5 +24,11 @@ It runs a series of perl scripts in order to get a good quality family. It needs
 - Removing gappy columns from N and C terminus
 - Removing partial sequences, i.e. those with a gap character at start of end of alignment
 - Running pfbuild to generate missing files
+- Searching for PDB references
+- Searching for SwissProt information
+- Searching for matching species
+- Adding DUF identifier
+- Adding family identifier
+- Running final checks
 
-Usage: `python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse [-d yes (delete previous files)]`
+Usage: `python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse [-d yes (delete previous files)] [-b family to start building from] [-n number of families to build]`
