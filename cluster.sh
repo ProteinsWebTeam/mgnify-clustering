@@ -42,11 +42,12 @@ if [[ -d $MGNIFY_REL ]]; then
     if [[ -s $MGNIFY_FASTA_FULL ]]; then
         echo "${MGNIFY_FASTA_FULL} already exists"
     else
-        # echo "Concataining MGNIFY data"
-        # ls -d ${MGNIFY_REL}/mgy_proteins_* | xargs zcat > $MGNIFY_FASTA
+        echo "Concataining MGNIFY data"
+        ls -d ${MGNIFY_REL}/mgy_proteins_* | xargs zcat > $MGNIFY_FASTA
         echo "Filtering full length sequences"
         python3 "${SCRIPTDIR}/filter_partial.py" -f $MGNIFY_FASTA
         mv "${DATADIR}/${MGNIFY_VERSION}.fa_clear" $MGNIFY_FASTA_FULL
+        rm $MGNIFY_FASTA
     fi
 else
     echo "${MGNIFY_REL} not found"
@@ -66,7 +67,8 @@ if [[ -s $MGYUNI_FASTA ]]; then
     echo "${MGYUNI_FASTA} already exists"
 else
     echo "Cat Mgnify and UniProt files"
-    `cat $UNIPROT_FASTA $MGNIFY_FASTA_FULL > $MGYUNI_FASTA `    
+    `cat $UNIPROT_FASTA $MGNIFY_FASTA_FULL > $MGYUNI_FASTA `  
+    rm $UNIPROT_FASTA #$MGNIFY_FASTA_FULL 
 fi
 
 #Clustering
@@ -108,8 +110,6 @@ fi
 list_accessions_sorted="${list_accessions}_sorted"
 if [[ -s $list_accessions ]];then
     sort -r -k2 -n $list_accessions > $list_accessions_sorted
-    #generate alignments for clusters with representative seq not found in Pfam
-    # python "${SCRIPTDIR}/generate_alignments_no_pfam.py" $list_accessions_sorted
 else
     echo "Getting statistics failed or no cluster found with more than 2 sequences and containing a UniProt sequence not in Pfam"
 fi

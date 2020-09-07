@@ -63,19 +63,23 @@ class alignments:
         donefamily = os.path.join(self.aligned_dir, f"DONE/{cluster_align}")
         ignorefamily = os.path.join(self.aligned_dir, f"IGNORE/{cluster_align}")
 
+        success = False
         # Check whether directory already exists. If not then get to work.
         if (
             not os.path.isdir(familydir)
             and not os.path.isdir(donefamily)
             and not os.path.isdir(ignorefamily)
         ):
-            # build good quality pfam family
-            build_families.build_family(cluster_file, cluster_align, cluster_align_dir)
+            while success == False:
+                # build good quality pfam family
+                success = build_families.build_family(
+                    cluster_file, cluster_align, cluster_align_dir
+                )
+            text = f"{cluster_align}\t{line}\n"
         else:
             print(f"Family {cluster_align} ({cluster_rep}) ignored or already processed")
-            print(os.path.isdir(familydir))
-
-        text = f"{cluster_align}\t{line}\n"
+            text = None
+        print(text)
         return text
 
 
@@ -91,6 +95,18 @@ if __name__ == "__main__":
         "--deletedata",
         help="Specify if you want to delete previously generated data (default=No)",
         default="No",
+    )
+    parser.add_argument(
+        "-b",
+        "--begin_count",
+        help="Family number value to start the alignment from (default=1)",
+        default=1,
+    )
+    parser.add_argument(
+        "-n",
+        "--number_to_process",
+        help="Number of clusters to process (default=1000)",
+        default=1000,
     )
 
     args = parser.parse_args()
@@ -117,21 +133,34 @@ if __name__ == "__main__":
         print(f"Deleting old data {al.aligned_dir}")
         shutil.rmtree(al.aligned_dir)
 
+    print(al.aligned_dir)
     os.makedirs(al.aligned_dir, exist_ok=True)
 
     print("Starting clusters alignments")
-    count = 1
+    count = int(args.begin_count)
+    if int(args.number_to_process) > 1:
+        final_cluster = int(args.begin_count) + int(args.number_to_process)
+    else:
+        final_cluster = int(args.begin_count)
+    print(f"Processing clusters {count} to {final_cluster}")
 
-    with open(args.inputfile, "r") as f, open(pfam_m_names, "w") as pf:
+    with open(args.inputfile, "r") as f, open(pfam_m_names, "a") as pf:
         if args.deletedata != "No":
             pf.write("pf_id\tcluster_rep\tnb_seq\tpercent_mgnify\tperecent_swissprot\n")
 
+        tmp_count = 0  # used if do not want to start building from first cluster
         for line in f:
-            if count <= 10:
-                pf.write(al.get_alignment(count, line))
-                count += 1
+            tmp_count += 1
+            if tmp_count >= count:  # start building from given file line
+                if count <= final_cluster:
+                    text = al.get_alignment(count, line)
+                    if text != None:
+                        pf.write(text)
+                    count += 1
+                else:
+                    break
             else:
-                break
+                pass
 
-    print(f"Pfam building done, {count} clusters saved")
+    print(f"Pfam building done, {args.number_to_process} clusters saved")
 
