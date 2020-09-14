@@ -158,6 +158,7 @@ def build_family(cluster_file, family, familydir):
     print("--- Completed in %.2f minutes ---" % ((time.time() - start_time) / 60))
 
     os.chdir(scriptdir)
+    os.system(f"chmod -R g+w {familydir}")
 
     return True
 
