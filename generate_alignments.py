@@ -6,9 +6,9 @@
 #
 # @brief This script generates MSA for clusters not matching Pfam db
 #
-# usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse 
-#                                     [-d "yes" (delete previous files)] 
-#                                     [-b family to start building from] 
+# usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse
+#                                     [-d "yes" (delete previous files)]
+#                                     [-b family to start building from]
 #                                     [-n number of families to build]
 #
 ###################
@@ -17,7 +17,12 @@ import os
 import sys
 import shutil
 import argparse
+import redis
+import time
+from multiprocessing import Process
+
 import build_families
+from complete_desc_file import complete_desc, check_pfambuild
 
 
 class alignments:
@@ -25,6 +30,12 @@ class alignments:
         self.cluster_dir = ""
         self.aligned_dir = ""
         self.datadir = ""
+        self.queue_in = "lift_over_in"
+        self.queue_done = "lift_over_done"
+        self.pfam_in = "pfam_in"
+        self.server = redis.StrictRedis(
+            port=6379, host="localhost", db=0, charset="utf-8", decode_responses=True
+        )
 
     def chunks(self, lst, n):
         """Yield successive n-sized chunks from lst."""
@@ -59,31 +70,85 @@ class alignments:
         cluster_file = self.get_cluster_file(cluster_rep)
         cluster_align = self.get_cluster_align(count)
 
-        cluster_align_dir = os.path.join(self.aligned_dir, cluster_align)
+        familydir = os.path.join(self.aligned_dir, cluster_align)
         print(cluster_rep, cluster_align)
 
-        familydir = os.path.join(self.aligned_dir, cluster_align)
         donefamily = os.path.join(self.aligned_dir, f"DONE/{cluster_align}")
         ignorefamily = os.path.join(self.aligned_dir, f"IGNORE/{cluster_align}")
 
-        success = False
         # Check whether directory already exists. If not then get to work.
         if (
             not os.path.isdir(familydir)
             and not os.path.isdir(donefamily)
             and not os.path.isdir(ignorefamily)
         ):
-            while success == False:
-                # build good quality pfam family
-                success = build_families.build_family(
-                    cluster_file, cluster_align, cluster_align_dir
-                )
             text = f"{cluster_align}\t{line}\n"
+
+            # build good quality pfam family
+            build_families.build_alignment(cluster_file, cluster_align, familydir)
+            self.server.rpush(self.queue_in, cluster_align)
         else:
-            print(f"Family {cluster_align} ({cluster_rep}) ignored or already processed")
+            print(
+                f"Family {cluster_align} ({cluster_rep}) ignored, processing or already processed"
+            )
             text = None
-        print(text)
         return text
+
+    def wait_liftover(self):
+        print("waiting for liftover to complete")
+        print(f"{self.server.llen(self.queue_in)} families to process")
+        count_failed = dict()
+        while True:
+            family = self.server.lpop(self.queue_in)
+            if not family:
+                break
+            # print(family)
+
+            outfile = os.path.join(self.aligned_dir, f"{family}/{family}_SEED.phmmer")
+            count = count_failed[family] if family in count_failed else 0
+            done = build_families.check_lift_over(family, outfile, count)
+            if done == False:  # liftover hasn't completed yet
+                self.server.rpush(self.queue_in, family)
+            elif done == True:  # liftover completed successfully
+                self.server.rpush(self.queue_done, family)
+            elif done == "failed":  # tried but failed running liftover twice
+                count_failed[family] += 1
+            else:  # tried but failed running liftover once, trying again
+                count_failed[family] = 1
+                self.server.rpush(self.queue_in, family)
+
+            time.sleep(0.2)
+        print(f"All liftover completed, {len(count_failed)} failed {count_failed.keys()}")
+
+    def wait_pfbuild(self):
+        print("waiting for pfbuild to complete")
+        count_failed = dict()
+        while True:
+            if not self.server.llen(self.queue_in) and not self.server.llen(self.queue_done):
+                break
+            family = self.server.lpop(self.queue_done)
+            if not family:
+                time.sleep(0.2)
+                continue
+            # print(family)
+
+            self.server.rpush(self.pfam_in, family)
+            familydir = os.path.join(self.aligned_dir, family)
+            os.chdir(familydir)
+            done = check_pfambuild()
+
+            if done == False:  # pfbuild hasn't completed yet
+                self.server.rpush(self.queue_done, family)
+            elif done == None:  # pfbuild failed to complete
+                if family not in count_failed:  # attempt to run pfbuild a second time
+                    os.remove("pfbuild.log")
+                    os.system("pfbuild -withpfmake SEED")
+                    self.server.rpush(self.queue_done, family)
+                    count_failed[family] = 1
+            else:  # pfbuild completed successfully
+                complete_desc()
+                print(f"Family {family} successfully built")
+            self.server.lpop(self.pfam_in)
 
 
 # verify input parameters are given
@@ -142,7 +207,7 @@ if __name__ == "__main__":
     print("Starting clusters alignments")
     count = int(args.begin_count)
     if int(args.number_to_process) > 1:
-        final_cluster = int(args.begin_count) + int(args.number_to_process)
+        final_cluster = int(args.begin_count) + int(args.number_to_process) - 1
     else:
         final_cluster = int(args.begin_count)
     print(f"Processing clusters {count} to {final_cluster}")
@@ -164,6 +229,27 @@ if __name__ == "__main__":
                     break
             else:
                 pass
+
+    scriptdir = os.path.dirname(os.path.realpath(__file__))
+
+    liftover = Process(target=al.wait_liftover())
+    liftover.start()
+
+    pfambuild = Process(target=al.wait_pfbuild())
+    pfambuild.start()
+
+    liftover.join()
+
+    while True:
+        if al.server.llen(al.pfam_in) or al.server.llen(al.queue_done):
+            print("still waiting for pfbuild to complete")
+            time.sleep(1)
+            continue
+        pfambuild.terminate()
+        pfambuild.join()
+        break
+
+    os.chdir(scriptdir)
 
     print(f"Pfam building done, {args.number_to_process} clusters saved")
 
