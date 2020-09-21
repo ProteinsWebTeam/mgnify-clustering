@@ -33,6 +33,8 @@ class alignments:
         self.queue_in = "lift_over_in"
         self.queue_done = "lift_over_done"
         self.pfam_in = "pfam_in"
+        self.pfam_failed = dict()
+        self.liftover_failed = dict()
         self.server = redis.StrictRedis(
             port=6379, host="localhost", db=0, charset="utf-8", decode_responses=True
         )
@@ -97,7 +99,7 @@ class alignments:
     def wait_liftover(self):
         print("waiting for liftover to complete")
         print(f"{self.server.llen(self.queue_in)} families to process")
-        count_failed = dict()
+
         while True:
             family = self.server.lpop(self.queue_in)
             if not family:
@@ -105,24 +107,23 @@ class alignments:
             # print(family)
 
             outfile = os.path.join(self.aligned_dir, f"{family}/{family}_SEED.phmmer")
-            count = count_failed[family] if family in count_failed else 0
+            count = self.liftover_failed[family] if family in self.liftover_failed else 0
             done = build_families.check_lift_over(family, outfile, count)
             if done == False:  # liftover hasn't completed yet
                 self.server.rpush(self.queue_in, family)
             elif done == True:  # liftover completed successfully
                 self.server.rpush(self.queue_done, family)
             elif done == "failed":  # tried but failed running liftover twice
-                count_failed[family] += 1
+                self.liftover_failed[family] += 1
             else:  # tried but failed running liftover once, trying again
-                count_failed[family] = 1
+                self.liftover_failed[family] = 1
                 self.server.rpush(self.queue_in, family)
 
             time.sleep(0.2)
-        print(f"All liftover completed, {len(count_failed)} failed {count_failed.keys()}")
+        # print(f"All liftover completed" , {len(self.liftover_failed)} failed {self.liftover_failed.keys()}")
 
     def wait_pfbuild(self):
         print("waiting for pfbuild to complete")
-        count_failed = dict()
         while True:
             if not self.server.llen(self.queue_in) and not self.server.llen(self.queue_done):
                 break
@@ -140,11 +141,11 @@ class alignments:
             if done == False:  # pfbuild hasn't completed yet
                 self.server.rpush(self.queue_done, family)
             elif done == None:  # pfbuild failed to complete
-                if family not in count_failed:  # attempt to run pfbuild a second time
+                if family not in self.pfam_failed:  # attempt to run pfbuild a second time
                     os.remove("pfbuild.log")
                     os.system("pfbuild -withpfmake SEED")
                     self.server.rpush(self.queue_done, family)
-                    count_failed[family] = 1
+                    self.pfam_failed[family] = 1
             else:  # pfbuild completed successfully
                 complete_desc()
                 print(f"Family {family} successfully built")
@@ -232,24 +233,22 @@ if __name__ == "__main__":
 
     scriptdir = os.path.dirname(os.path.realpath(__file__))
 
+    liftover_failed = dict()
     liftover = Process(target=al.wait_liftover())
     liftover.start()
 
+    pfam_failed = dict()
     pfambuild = Process(target=al.wait_pfbuild())
     pfambuild.start()
 
     liftover.join()
-
-    while True:
-        if al.server.llen(al.pfam_in) or al.server.llen(al.queue_done):
-            print("still waiting for pfbuild to complete")
-            time.sleep(1)
-            continue
-        pfambuild.terminate()
-        pfambuild.join()
-        break
+    pfambuild.join()
 
     os.chdir(scriptdir)
 
-    print(f"Pfam building done, {args.number_to_process} clusters saved")
+    print(f"Pfam building done, {args.number_to_process} clusters processed")
+    if len(al.liftover_failed) > 0:
+        print(f"{len(al.liftover_failed)} failed liftover: {al.liftover_failed.keys()}")
+    if len(al.pfam_failed) > 0:
+        print(f"{len(al.pfam_failed)} failed pfbuild: {al.pfam_failed.keys()}")
 

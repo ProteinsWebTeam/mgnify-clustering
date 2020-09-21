@@ -23,15 +23,23 @@ def check_pfambuild():
             datafile = f.readlines()
             # verify that the process has finished running
             if "Resource usage summary:\n" in datafile:
+                # if error found in the process
                 r = re.compile(
                     r"cannot create temp file for here-document: No space left on device"
                 )
                 newlines = list(filter(r.search, datafile))
+                # if other error
+                r = re.compile(r"Exited with exit code")
+                newlines2 = list(filter(r.search, datafile))
+
                 if len(newlines) > 0:  # if error found in the process
                     print(
                         "An error occured when running pfbuild, run it again, please check the log file (pfbuild.log)"
                     )
                     print(newlines)
+                    return
+                elif len(newlines2) > 0:
+                    print("Memory limit error")
                     return
 
     return False
