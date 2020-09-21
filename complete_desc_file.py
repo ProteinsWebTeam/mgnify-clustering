@@ -74,7 +74,7 @@ def complete_desc():
 
     print("Running final checks")
     start_time = time.time()
-    os.system(f"/nfs/production/xfam/pfam/software/bin/pqc-overlap-rdb.pl .")
+    os.system(f"/nfs/production/xfam/pfam/software/bin/pqc-overlap-rdb .")
     print("--- Completed in %.2f minutes ---" % ((time.time() - start_time) / 60))
 
     os.system(f"chmod -R g+w *")
