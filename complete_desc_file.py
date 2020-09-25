@@ -87,3 +87,5 @@ if __name__ == "__main__":
         complete_desc()
     elif done == False:
         print("Pfbuild hasn't completed yet")
+    else:
+        exit()
