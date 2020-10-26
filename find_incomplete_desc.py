@@ -6,7 +6,7 @@
 #
 # @brief This script checks and completes incomplete DESC files
 #
-# @args
+# @args -d dir: directory containing the data to check
 #
 ##################
 
@@ -20,7 +20,7 @@ if __name__ == "__main__":
     parser.add_argument("-d", "--dir", help="directory containing the data to check", required=True)
 
     args = parser.parse_args()
-    
+
     count = 0
     for family in os.listdir(args.dir):
         count += 1

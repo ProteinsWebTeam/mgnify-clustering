@@ -19,6 +19,7 @@ import shutil
 import argparse
 import redis
 import time
+import subprocess
 from multiprocessing import Process
 
 import build_families
@@ -30,6 +31,7 @@ class alignments:
         self.cluster_dir = ""
         self.aligned_dir = ""
         self.datadir = ""
+        self.scriptdir = os.path.dirname(os.path.realpath(__file__))
         self.queue_in = "lift_over_in"
         self.queue_done = "lift_over_done"
         self.pfam_in = "pfam_in"
@@ -76,19 +78,28 @@ class alignments:
         print(cluster_rep, cluster_align)
 
         donefamily = os.path.join(self.aligned_dir, f"DONE/{cluster_align}")
+        donemfamily = os.path.join(self.aligned_dir, f"DONE_MERGED/{cluster_align}")
         ignorefamily = os.path.join(self.aligned_dir, f"IGNORE/{cluster_align}")
+        functionfamily = os.path.join(self.aligned_dir, f"FUNCTION/{cluster_align}")
+        duffamily = os.path.join(self.aligned_dir, f"DUF/{cluster_align}")
 
         # Check whether directory already exists. If not then get to work.
         if (
             not os.path.isdir(familydir)
             and not os.path.isdir(donefamily)
             and not os.path.isdir(ignorefamily)
+            and not os.path.isdir(functionfamily)
+            and not os.path.isdir(duffamily)
+            and not os.path.isdir(donemfamily)
         ):
             text = f"{cluster_align}\t{line}\n"
 
             # build good quality pfam family
-            build_families.build_alignment(cluster_file, cluster_align, familydir)
+            os.makedirs(familydir, exist_ok=True)
+            os.chdir(familydir)
+            build_families.build_alignment(cluster_file, cluster_align)
             self.server.rpush(self.queue_in, cluster_align)
+            os.chdir(self.scriptdir)
         else:
             print(
                 f"Family {cluster_align} ({cluster_rep}) ignored, processing or already processed"
@@ -106,15 +117,32 @@ class alignments:
                 break
             # print(family)
 
-            outfile = os.path.join(self.aligned_dir, f"{family}/{family}_SEED.phmmer")
+            familydir = os.path.join(self.aligned_dir, family)
+            os.chdir(familydir)
+
+            outfile = os.path.join(familydir, f"{family}_SEED.phmmer")
             count = self.liftover_failed[family] if family in self.liftover_failed else 0
             done = build_families.check_lift_over(family, outfile, count)
+
             if done == False:  # liftover hasn't completed yet
                 self.server.rpush(self.queue_in, family)
             elif done == True:  # liftover completed successfully
-                self.server.rpush(self.queue_done, family)
+                pf = subprocess.Popen(
+                    ["pfbuild", "-withpfmake", "SEED"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                err = pf.communicate()[1].decode("utf-8")
+                if pf.returncode != 0:
+                    print(f"Error while running pfbuild: {err}")
+                    self.pfam_failed[family] = 1
+                    os.system(f"chmod -R g+w {familydir}")
+                else:
+                    self.server.rpush(self.queue_done, family)
+                    print(err)
             elif done == "failed":  # tried but failed running liftover twice
                 self.liftover_failed[family] += 1
+                os.system(f"chmod -R g+w {familydir}")
             else:  # tried but failed running liftover once, trying again
                 self.liftover_failed[family] = 1
                 self.server.rpush(self.queue_in, family)
@@ -146,9 +174,13 @@ class alignments:
                     os.system("pfbuild -withpfmake SEED")
                     self.server.rpush(self.queue_done, family)
                     self.pfam_failed[family] = 1
+                else:
+                    self.pfam_failed[family] += 1
+                    os.system(f"chmod -R g+w {familydir}")
             else:  # pfbuild completed successfully
                 complete_desc()
                 print(f"Family {family} successfully built")
+                os.system(f"chmod -R g+w {familydir}")
             self.server.lpop(self.pfam_in)
 
 
@@ -231,8 +263,6 @@ if __name__ == "__main__":
             else:
                 pass
 
-    scriptdir = os.path.dirname(os.path.realpath(__file__))
-
     liftover_failed = dict()
     liftover = Process(target=al.wait_liftover())
     liftover.start()
@@ -244,11 +274,24 @@ if __name__ == "__main__":
     liftover.join()
     pfambuild.join()
 
-    os.chdir(scriptdir)
+    os.chdir(al.scriptdir)
 
-    print(f"Pfam building done, {args.number_to_process} clusters processed")
-    if len(al.liftover_failed) > 0:
-        print(f"{len(al.liftover_failed)} failed liftover: {al.liftover_failed.keys()}")
-    if len(al.pfam_failed) > 0:
-        print(f"{len(al.pfam_failed)} failed pfbuild: {al.pfam_failed.keys()}")
+    logfile = "generate_alignments.log"
+
+    with open(logfile, "a") as log:
+        logtime = {time.strftime("%d %b %Y %H:%M", time.localtime())}
+        log.write(f"\n{logtime}:\n")
+        print(f"Pfam building done, {args.number_to_process} clusters processed")
+        log.write(f"Pfam building done, {args.number_to_process} clusters processed\n")
+
+        if len(al.liftover_failed) > 0:
+            print(
+                f"{len(al.liftover_failed)} failed liftover: {' '.join(al.liftover_failed.keys())}"
+            )
+            log.write(
+                f"{len(al.liftover_failed)} failed liftover: {' '.join(al.liftover_failed.keys())}\n"
+            )
+        if len(al.pfam_failed) > 0:
+            print(f"{len(al.pfam_failed)} failed pfbuild: {' '.join(al.pfam_failed.keys())}")
+            log.write(f"{len(al.pfam_failed)} failed pfbuild: {' '.join(al.pfam_failed.keys())}\n")
 

@@ -17,15 +17,13 @@ from shutil import copyfile, rmtree
 import argparse
 import time
 import re
-import redis
+import subprocess
+import sys
 
 
 def check_lift_over(family, outfile, count):
-    scriptdir = os.path.dirname(os.path.realpath(__file__))
-    familydir = os.path.dirname(os.path.realpath(outfile))
 
     family_seed = f"{family}_SEED"
-    os.chdir(familydir)
 
     if os.path.isfile(outfile) and os.path.getsize(outfile) != 0:
         copyfile(outfile, "SEED4")
@@ -34,7 +32,7 @@ def check_lift_over(family, outfile, count):
 
         if os.path.isfile("SEED") and os.path.getsize("SEED") != 0:
             print(f"Building Pfam from seed alignment for {family}")
-            os.system("pfbuild -withpfmake SEED")  # ~3 minutes run
+            # os.system("pfbuild -withpfmake SEED")  # ~3 minutes run
             return True
         else:
             print(f"An error occured while building SEED alignment for {family}")
@@ -72,7 +70,7 @@ def check_lift_over(family, outfile, count):
                     else:
                         print(newlines)
                         return "failed"
-    os.chdir(scriptdir)
+
     return False
 
 
@@ -93,7 +91,7 @@ def prepare_seed():
     os.system("belvu -P -o mul SEED2 | grep -v '//' > SEED")
 
 
-def build_alignment(cluster_file, family, familydir):
+def build_alignment(cluster_file, family):
 
     liftover_alignment = (
         "/nfs/production/xfam/pfam/software/Pfam/PfamScripts/make/liftover_alignment.pl"
@@ -102,54 +100,56 @@ def build_alignment(cluster_file, family, familydir):
         "/nfs/production/xfam/pfam/software/Pfam/PfamScripts/make/create_alignment.pl"
     )
 
-    scriptdir = os.path.dirname(os.path.realpath(__file__))
-
     print(f"Building family {family}")
-
-    try:
-        rmtree(familydir)
-    except FileNotFoundError:
-        pass
-    os.makedirs(familydir, exist_ok=True)
-    os.chdir(familydir)
 
     # align sequences in the cluster
     start_time = time.time()
     print(f"Starting alignment for {family}")
-    os.system(f"perl {alignment_script} -fasta {cluster_file} -m > {family}")
-    print("--- Completed in %.2f minutes ---" % ((time.time() - start_time) / 60))
+    if os.path.isfile(cluster_file):
+        os.system(f"perl {alignment_script} -fasta {cluster_file} -m > {family}")
+        print("--- Completed in %.2f minutes ---" % ((time.time() - start_time) / 60))
 
-    # transform from aligned fasta to Pfam alignment format
-    family_seed = f"{family}_SEED"
-    while os.path.isfile(family_seed) == False or os.path.getsize(family_seed) == 0:
-        os.system(f"belvu -o mul {family} | grep -v '//' >  {family_seed}")
+        # transform from aligned fasta to Pfam alignment format
+        family_seed = f"{family}_SEED"
+        while os.path.isfile(family_seed) == False or os.path.getsize(family_seed) == 0:
+            os.system(f"belvu -o mul {family} | grep -v '//' >  {family_seed}")
 
-    # align against pfamseq database
-    print(f"Starting Liftover")
-    os.system(f"perl {liftover_alignment} -align {family_seed}")  # ~7 minutes run
+        # align against pfamseq database
+        print(f"Starting Liftover")
+        os.system(f"perl {liftover_alignment} -align {family_seed}")  # ~7 minutes run
 
-    os.chdir(scriptdir)
-    os.system(f"chmod -R g+w {familydir}")
+    else:
+        print(f"File not found error: {cluster_file}")
+        sys.exit()
 
 
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "-i", "--inputfile", help="file countaining cluster statistics", required=True
+        "-i",
+        "--inputfile",
+        help="path to fasta file containing the cluster sequences",
+        required=True,
     )
     parser.add_argument("-f", "--family", help="Family accession to process", required=True)
-    parser.add_argument(
-        "-d", "--datadir", help="Directory containing the data to process", required=True
-    )
+    parser.add_argument("-d", "--datadir", help="Directory where to save data", required=True)
 
     args = parser.parse_args()
 
     scriptdir = os.path.dirname(os.path.realpath(__file__))
-    build_alignment(args.inputfile, args.family, args.datadir)
-    outfile = os.path.join(args.datadir, f"{args.family}/{args.family}_SEED.phmmer")
+    familydir = os.path.join(args.datadir, args.family)
+    outfile = os.path.join(familydir, f"{args.family}_SEED.phmmer")
 
-    os.chdir(os.path.join(args.datadir, args.family))
+    try:
+        rmtree(familydir)
+    except FileNotFoundError:
+        pass
+
+    os.makedirs(familydir, exist_ok=True)
+    os.chdir(familydir)
+
+    build_alignment(args.inputfile, args.family)
 
     # wait for lift_over to complete
     count_failed = 0
@@ -171,11 +171,20 @@ if __name__ == "__main__":
         time.sleep(0.2)
 
     # if lift_over successfully completed, carry on with pfbuild
+    # success_liftover = True
     if success_liftover:
-        done = check_pfambuild()
+        pf = subprocess.Popen(
+            ["pfbuild", "-withpfmake", "SEED"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
+        )
+        err = pf.communicate()[1].decode("utf-8")
+        if pf.returncode != 0:
+            print(f"Error while running pfbuild: {err}")
+            sys.exit()
+
         count_failed = 0
         # wait for pfbuild to complete
         while True:
+            done = check_pfambuild()
             if done == True:  # pfbuild completed, complete DESC file
                 complete_desc()
                 break
@@ -193,3 +202,4 @@ if __name__ == "__main__":
             time.sleep(0.2)
 
     os.chdir(scriptdir)
+    os.system(f"chmod -R g+w {familydir}")
