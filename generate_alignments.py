@@ -81,6 +81,7 @@ class alignments:
         donemfamily = os.path.join(self.aligned_dir, f"DONE_MERGED/{cluster_align}")
         ignorefamily = os.path.join(self.aligned_dir, f"IGNORE/{cluster_align}")
         functionfamily = os.path.join(self.aligned_dir, f"FUNCTION/{cluster_align}")
+        failedfamily = os.path.join(self.aligned_dir, f"FAILED/{cluster_align}")
         duffamily = os.path.join(self.aligned_dir, f"DUF/{cluster_align}")
 
         # Check whether directory already exists. If not then get to work.
@@ -91,6 +92,7 @@ class alignments:
             and not os.path.isdir(functionfamily)
             and not os.path.isdir(duffamily)
             and not os.path.isdir(donemfamily)
+            and not os.path.isdir(failedfamily)
         ):
             text = f"{cluster_align}\t{line}\n"
 
@@ -119,6 +121,7 @@ class alignments:
 
             familydir = os.path.join(self.aligned_dir, family)
             os.chdir(familydir)
+            faileddir = os.path.join(self.aligned_dir, "FAILED")
 
             outfile = os.path.join(familydir, f"{family}_SEED.phmmer")
             count = self.liftover_failed[family] if family in self.liftover_failed else 0
@@ -136,13 +139,13 @@ class alignments:
                 if pf.returncode != 0:
                     print(f"Error while running pfbuild: {err}")
                     self.pfam_failed[family] = 1
-                    os.system(f"chmod -R g+w {familydir}")
+                    os.system(f"mv {familydir} {faileddir}")
                 else:
                     self.server.rpush(self.queue_done, family)
                     print(err)
             elif done == "failed":  # tried but failed running liftover twice
                 self.liftover_failed[family] += 1
-                os.system(f"chmod -R g+w {familydir}")
+                os.system(f"mv {familydir} {faileddir}")
             else:  # tried but failed running liftover once, trying again
                 self.liftover_failed[family] = 1
                 self.server.rpush(self.queue_in, family)
@@ -163,6 +166,7 @@ class alignments:
 
             self.server.rpush(self.pfam_in, family)
             familydir = os.path.join(self.aligned_dir, family)
+            faileddir = os.path.join(self.aligned_dir, "FAILED")
             os.chdir(familydir)
             done = check_pfambuild()
 
@@ -176,10 +180,12 @@ class alignments:
                     self.pfam_failed[family] = 1
                 else:
                     self.pfam_failed[family] += 1
-                    os.system(f"chmod -R g+w {familydir}")
+                    os.chdir(self.scriptdir)
+                    os.system(f"mv {familydir} {faileddir}")
             else:  # pfbuild completed successfully
                 complete_desc()
                 print(f"Family {family} successfully built")
+                os.chdir(self.scriptdir)
                 os.system(f"chmod -R g+w {familydir}")
             self.server.lpop(self.pfam_in)
 
