@@ -74,6 +74,8 @@ fi
 #Clustering
 mmseqs="/nfs/production/interpro/metagenomics/peptide_db/mmseqs"
 new_mmseqs="${SCRIPTDIR}/MMseqs2/build/bin/mmseqs"
+
+cd $PFAM_DIR
 SUBDIR="${MGNIFY_VERSION}_${UNIPROT_VERSION}_FULL_bidir"
 mkdir -p $SUBDIR
 
@@ -98,9 +100,15 @@ if [[ -s $cluster_file ]];then
     #counting cluster size and Mgnify percentages per cluster
     source ~oracle/ora112setup.sh
     prot_not_in_pfam="${DATADIR}/proteins_not_in_pfam_${UNIPROT_VERSION}.txt"
-    echo "Deleting old clusters files"
-    rm -r "${SUBDIR}/clusters"
-    rm $list_accessions
+    if [[ -d "${SUBDIR}/clusters" ]]
+    then
+        echo "Deleting old clusters files"
+        rm -r "${SUBDIR}/clusters"
+    fi
+    if [[ -s $list_accessions ]]
+    then
+        rm $list_accessions
+    fi
     python "${SCRIPTDIR}/get_stats.py" -i $cluster_file -f $prot_not_in_pfam -u $USERNAME -p $PASSWORD -s $SCHEMA
 else
     echo "Clustering failed"

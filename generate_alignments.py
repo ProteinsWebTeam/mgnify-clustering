@@ -11,6 +11,8 @@
 #                                     [-b family to start building from]
 #                                     [-n number of families to build]
 #
+# !!!! start redis server (redis-server &) before running this script need the graphic interface should be enabled (-x) !!!
+#
 ###################
 
 import os
