@@ -7,11 +7,12 @@
 # @brief This script generates MSA for clusters not matching Pfam db
 #
 # usage: python generate_alignments.py -i file_containing_stats_sorted_by_cluster_size_reverse
+#                                      -f folder name for output files
 #                                     [-d "yes" (delete previous files)]
 #                                     [-b family to start building from]
 #                                     [-n number of families to build]
 #
-# !!!! start redis server (redis-server &) before running this script need the graphic interface should be enabled (-x) !!!
+# !!!! start redis server (redis-server &) before running this script, need the graphic interface should be enabled (-x) !!!
 #
 ###################
 
@@ -37,6 +38,7 @@ class alignments:
         self.queue_in = "lift_over_in"
         self.queue_done = "lift_over_done"
         self.pfam_in = "pfam_in"
+        self.folder = ""
         self.pfam_failed = dict()
         self.liftover_failed = dict()
         self.server = redis.StrictRedis(
@@ -63,7 +65,7 @@ class alignments:
 
     def get_cluster_align(self, count):
         nb_zeros = 6 - len(str(count))
-        cluster_align = "Pfam-M_"
+        cluster_align = f"{self.folder}_"
         for c in range(0, nb_zeros):
             cluster_align = f"{cluster_align}0"
 
@@ -200,6 +202,13 @@ if __name__ == "__main__":
         "-i", "--inputfile", help="file countaining cluster statistics", required=True
     )
     parser.add_argument(
+        "-f",
+        "--folder_name",
+        help="Folder name to write the output data (e.g. Pfam-M or Pfam-E)",
+        required=True,
+    )
+
+    parser.add_argument(
         "-d",
         "--deletedata",
         help="Specify if you want to delete previously generated data (default=No)",
@@ -214,16 +223,17 @@ if __name__ == "__main__":
     parser.add_argument(
         "-n",
         "--number_to_process",
-        help="Number of clusters to process (default=1000)",
-        default=1000,
+        help="Number of clusters to process (default=100)",
+        default=100,
     )
 
     args = parser.parse_args()
     # clusters_to_align_file=mgy_seqs.cluster_seq.fa_percent_mgnify_2+_no_pfam_sorted
 
     al = alignments()
+    al.folder = args.folder_name
     al.datadir = os.path.dirname(os.path.realpath(args.inputfile))
-    al.aligned_dir = os.path.join(al.datadir, "Pfam-M")
+    al.aligned_dir = os.path.join(al.datadir, args.folder_name)
     # al.aligned_dir = os.path.join(al.datadir, "Pfam-M_test")
     al.cluster_dir = os.path.join(al.datadir, "clusters")
 
@@ -240,7 +250,10 @@ if __name__ == "__main__":
         except FileNotFoundError:
             pass
         print(f"Deleting old data {al.aligned_dir}")
-        shutil.rmtree(al.aligned_dir)
+        try:
+            shutil.rmtree(al.aligned_dir)
+        except FileNotFoundError:
+            pass
 
     print(al.aligned_dir)
     os.makedirs(al.aligned_dir, exist_ok=True)
@@ -255,7 +268,10 @@ if __name__ == "__main__":
 
     with open(args.inputfile, "r") as f, open(pfam_m_names, "a") as pf:
         if args.deletedata != "No":
-            pf.write("pf_id\tcluster_rep\tnb_seq\tpercent_mgnify\tperecent_swissprot\n")
+            if al.folder == "Pfam-M":
+                pf.write("pf_id\tcluster_rep\tnb_seq\tpercent_mgnify\tperecent_swissprot\n")
+            else:
+                pf.write("pf_id\tcluster_rep\tnb_seq\tperecent_swissprot\n")
 
         tmp_count = 0  # used if do not want to start building from first cluster
         for line in f:
@@ -302,4 +318,3 @@ if __name__ == "__main__":
         if len(al.pfam_failed) > 0:
             print(f"{len(al.pfam_failed)} failed pfbuild: {' '.join(al.pfam_failed.keys())}")
             log.write(f"{len(al.pfam_failed)} failed pfbuild: {' '.join(al.pfam_failed.keys())}\n")
-
